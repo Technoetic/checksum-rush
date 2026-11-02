@@ -1,0 +1,5 @@
+dist/
+.build-staging/
+node_modules/
+artifacts/
+*.log

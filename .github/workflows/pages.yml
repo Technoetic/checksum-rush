@@ -1,0 +1,86 @@
+name: Deploy GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: checksum-rush-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+      - name: Test
+        run: npm test
+      - name: Locate previous static assets
+        id: previous
+        shell: bash
+        run: |
+          if git ls-remote --exit-code --heads origin gh-pages >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Read previous static build
+        if: steps.previous.outputs.exists == 'true'
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: gh-pages
+          path: .previous-pages
+          persist-credentials: false
+      - name: Build for project URL
+        shell: bash
+        run: |
+          if [ -d .previous-pages/assets ]; then
+            npm run build -- --base /checksum-rush/ --previous .previous-pages
+          else
+            npm run build -- --base /checksum-rush/
+          fi
+      - name: Retain immutable assets for cached entry documents
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ "${{ steps.previous.outputs.exists }}" = "true" ]; then
+            git fetch origin gh-pages:refs/remotes/origin/gh-pages
+            git worktree add --detach .archive-pages origin/gh-pages
+          else
+            git worktree add --detach .archive-pages HEAD
+            git -C .archive-pages switch --orphan gh-pages
+          fi
+          rsync -a --delete --exclude='.git' dist/ .archive-pages/
+          git -C .archive-pages add .
+          if ! git -C .archive-pages diff --cached --quiet; then
+            git -C .archive-pages commit -m "build: retain Pages assets for ${GITHUB_SHA}"
+            git -C .archive-pages push origin HEAD:gh-pages
+          fi
+      - name: Configure Pages
+        uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
+      - name: Upload static site
+        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
+        with:
+          path: dist
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4
