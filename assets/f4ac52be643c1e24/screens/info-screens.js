@@ -1,0 +1,48 @@
+import { ChecksumEngine } from '../domain/engine.js';
+import { checksum } from '../domain/checksum.js';
+import { ArenaRenderer } from './arena-renderer.js';
+const format = n => Math.round(n || 0).toLocaleString('en-US');
+export class HomeScreen {
+  constructor({ root, records }) { this.root = root; this.records = records; this.disposed = false; }
+  async mount() {
+    let data = {}, error = '';
+    try { data = await this.records.load(); } catch (e) { error = e.message; }
+    if (this.disposed) return;
+    this.root.innerHTML = `<section class="home-hero"><div class="hero-copy"><p class="eyebrow">PROTOCOL 001 / DATA INTEGRITY</p><h1 class="hero-title"><span>CHECKSUM</span><span class="rush">RUSH <i aria-hidden="true">»</i></span></h1><h2 class="hero-sub">데이터의 마지막 방어선이 되어라.</h2><p class="hero-description">쏟아지는 패킷. 숨어든 데이터 변조.<br>체크섬으로 찾아내고, 정확한 한 방으로 차단하세요.</p><div class="hero-actions"><a class="btn-primary" href="#/play" data-nav="#/play">방어전 시작 <span aria-hidden="true">↗</span></a><a class="text-link" href="#/guide" data-nav="#/guide">처음이라면, 플레이 가이드 <span>→</span></a></div><div class="hero-meta"><span>◈ PC + MOBILE</span><span>◷ 90 SECOND CHALLENGE</span></div></div><div class="hero-art"><span class="art-tag">LIVE LINK / SECTOR_07</span><span class="art-cross" aria-hidden="true">+</span><canvas aria-hidden="true"></canvas><div class="art-readout"><span>INTEGRITY SHIELD</span><strong>SCAN → COMPARE → BLOCK</strong><span>SUM4 PROTOCOL · ONLINE</span></div></div></section>${data.checkpoint ? '<div class="resume-notice">저장된 라운드가 있어요. <a class="text-link" href="#/play?resume=1" data-nav="#/play?resume=1">이어서 방어하기 →</a></div>' : ''}${error ? '<p class="storage-notice">기록을 읽지 못했지만 새 라운드는 플레이할 수 있어요.</p>' : ''}<section class="mission-strip" aria-label="미션 정보"><div><p class="stat-label">YOUR BEST SCORE</p><p class="stat-value"><span class="record">${format(data.best?.score).padStart(5, '0')}</span><small>PTS</small></p></div><div><p class="stat-label">MISSION DURATION</p><p class="stat-value">90<small>SECONDS</small></p></div><div><p class="stat-label">DEFENSE SECTORS</p><p class="stat-value">03<small>DATA RAILS</small></p></div><div><p class="stat-label">OBJECTIVE</p><p class="stat-value">변조 차단<small>STAY SHARP</small></p></div></section><section aria-label="플레이 방법"><div class="how-intro"><h2>세 번의 판단. 하나의 방어선.</h2><span>HOW TO DEFEND / 01—03</span></div><div class="steps"><article class="step-card"><span class="step-number">01 /</span><div><h3>흐름을 읽고 이동</h3><p><kbd>A</kbd> <kbd>D</kbd> 또는 방향키로 레일 선택.<br>모바일은 레일을 터치하세요.</p></div></article><article class="step-card"><span class="step-number">02 /</span><div><h3>패킷의 체크섬 검사</h3><p><kbd>SPACE</kbd>로 전송 전·수신 후 값을 비교.<br>다르면 데이터가 바뀐 겁니다.</p></div></article><article class="step-card"><span class="step-number">03 /</span><div><h3>변조만 정확하게 차단</h3><p><kbd>J</kbd>로 변조 차단, 정상 패킷은 통과.<br><kbd>SHIFT</kbd>로 흐름을 늦출 수 있어요.</p></div></article></div></section>`;
+    this.renderer = new ArenaRenderer(this.root.querySelector('canvas'), { demo: true }); this.engine = new ChecksumEngine({ seed: 14 }); this.engine.start();
+    for (let i = 0; i < 120; i++) this.engine.update(.05);
+    this.engine.drainEvents();
+    this.last = performance.now(); this.scanClock = 0;
+    const frame = now => { if (this.disposed) return; const dt = Math.min((now - this.last) / 1000, .05); this.last = now;
+      if (!document.hidden) { this.engine.update(dt); this.scanClock += dt; const candidates = this.engine.state.packets.filter(p => p.z > .45).sort((a, b) => b.z - a.z); const p = candidates[0]; if (p && this.scanClock > .25) { this.engine.setLane(p.lane); if (!p.scanned) this.engine.scan(); else if (p.actual !== p.expected) this.engine.block(); this.scanClock = 0; } for (const e of this.engine.drainEvents()) this.renderer.effect(e); if (['won', 'lost'].includes(this.engine.state.phase)) { this.engine = new ChecksumEngine({ seed: 14 }); this.engine.start(); } this.renderer.draw(this.engine.state, dt, now / 1000); }
+      this.raf = requestAnimationFrame(frame); };
+    this.raf = requestAnimationFrame(frame);
+  }
+  get dirty() { return false; }
+  dispose() { this.disposed = true; cancelAnimationFrame(this.raf); this.renderer?.dispose(); }
+}
+export class GuideScreen {
+  constructor({ root }) { this.root = root; this.original = [2, 5, 1, 8]; this.received = [...this.original]; }
+  mount() {
+    this.root.innerHTML = `<section class="guide-page"><p class="eyebrow accent">FIELD MANUAL / QUICK START</p><h1 class="page-title">작은 확인값으로,<br>데이터의 변화를 찾다.</h1><p class="page-lead">체크섬은 데이터로부터 계산하는 짧은 확인값입니다. 보내기 전과 받은 뒤에 같은 방법으로 계산해 비교하면, 전송 중 데이터가 바뀌었는지 살펴볼 수 있어요.</p><div class="guide-flow"><article><b>01 / TRANSMIT</b><h2>보내기 전에 계산</h2><p>패킷의 숫자로 체크섬을 계산해 함께 보냅니다. 게임에서는 이 값을 <strong>TX</strong>로 표시합니다.</p></article><article><b>02 / RECEIVE</b><h2>받은 데이터로 다시 계산</h2><p><strong>검사</strong>를 누르면 도착한 숫자로 계산한 <strong>RX</strong>가 보입니다. 두 값에 같은 계산법을 사용합니다.</p></article><article><b>03 / COMPARE</b><h2>다르면 변조 차단</h2><p>TX와 RX가 다르면 데이터가 바뀐 것. <strong>차단</strong>하세요. 같은 패킷은 건드리지 않으면 자동 통과합니다.</p></article></div><section class="checksum-lab" aria-labelledby="lab-title"><div><p class="eyebrow accent">PLAY WITH THE IDEA</p><h2 id="lab-title">체크섬에도 사각지대가 있어요.</h2><p>게임의 간이 계산법 <strong>SUM4</strong>는 숫자 네 개를 더한 뒤 16으로 나눈 나머지입니다. 순서를 바꾸면 데이터는 달라지지만 합계는 그대로일 수 있어요. 이런 경우를 <strong>충돌</strong>이라고 합니다.</p><p class="muted" style="margin-top:12px">보낸 원본: <span class="mono">2 · 5 · 1 · 8</span> → TX <span class="mono">0</span></p></div><div class="lab-display"><div class="lab-digits" id="lab-digits">2 5 1 8</div><output class="lab-result" id="lab-result">16 % 16 = 0</output><div style="display:flex;gap:7px;justify-content:center;flex-wrap:wrap"><button class="btn-secondary" type="button" id="lab-swap">두 칸 바꾸기 ↔</button><button class="btn-secondary" type="button" id="lab-change">한 칸 바꾸기 +1</button><button class="text-link" type="button" id="lab-reset">원본 복구</button></div><p class="lab-status" id="lab-status" role="status">숫자를 바꾸고 TX와 RX를 비교해 보세요.</p></div></section><p class="guide-note"><strong>이 게임은 이해를 돕는 추상화입니다.</strong> 실제 TCP 체크섬·CRC·암호학적 해시의 구현이 아닙니다. 체크섬이 같아도 데이터가 항상 같다는 보장은 없으며, 보낸 사람을 인증하거나 손상된 데이터를 복구하지도 않습니다. 공정한 플레이를 위해 액션 라운드의 변조 패킷은 모두 체크섬이 달라지도록 구성했습니다.</p><div class="guide-controls"><a class="btn-primary" href="#/play" data-nav="#/play">이제, 방어선으로 ↗</a><a class="text-link" href="#/" data-nav="#/">홈으로 돌아가기 →</a></div><p class="guide-reference">CONTROLS · A / D 이동 · SPACE 검사 · J 차단 · SHIFT 감속 · ESC 일시정지<br>모바일: 레일 선택 + 검사/차단 버튼 · 기록은 현재 브라우저에만 저장됩니다.</p></section>`;
+    this.abort = new AbortController(); const opts = { signal: this.abort.signal };
+    this.root.querySelector('#lab-swap').addEventListener('click', () => { this.received = [5, 2, 1, 8]; this.updateLab(); }, opts);
+    this.root.querySelector('#lab-change').addEventListener('click', () => { this.received = [3, 5, 1, 8]; this.updateLab(); }, opts);
+    this.root.querySelector('#lab-reset').addEventListener('click', () => { this.received = [...this.original]; this.updateLab(); }, opts);
+  }
+  updateLab() { const sum = this.received.reduce((a, b) => a + b, 0), value = checksum(this.received), changed = this.received.some((n, i) => n !== this.original[i]); this.root.querySelector('#lab-digits').textContent = this.received.join(' '); this.root.querySelector('#lab-result').textContent = `${sum} % 16 = ${value} · TX 0 / RX ${value}`; const output = this.root.querySelector('#lab-status'); output.textContent = changed ? value === 0 ? '충돌! 데이터는 달라졌지만 체크섬은 같아요. 같은 확인값만으로 완전한 동일성을 보장할 수 없어요.' : '차이 발견! TX 0 ≠ RX 1. 데이터가 바뀌었다는 것을 알아냈어요.' : '원본과 같은 데이터입니다. TX와 RX도 같아요.'; }
+  get dirty() { return false; }
+  dispose() { this.abort?.abort(); }
+}
+export class ResultScreen {
+  constructor({ root, result, best }) { this.root = root; this.result = result; this.best = best; }
+  mount() { const r = this.result; if (!r) { this.root.innerHTML = `<section class="error-state"><p class="eyebrow accent">NO TRANSMISSION YET</p><h1>첫 기록을 만들어 보세요.</h1><p>아직 완료된 라운드가 없어요. 방어선을 지키고 첫 점수를 남겨 보세요.</p><a class="btn-primary" href="#/play" data-nav="#/play">방어전 시작 ↗</a></section>`; return; } const scanned = r.stats.scanned || 0; this.root.innerHTML = `<section class="results-page"><p class="eyebrow">${r.won ? 'MISSION COMPLETE / LINK SECURED' : 'LINK LOST / TRY AGAIN'}</p><h1 class="page-title">${r.won ? '방어선, 지켜냈습니다.' : '다음 신호는 지켜낼 수 있어요.'}</h1><p class="result-label">YOUR TRANSMISSION SCORE</p><div class="result-score">${format(r.score)}</div>${this.best?.score === r.score ? '<span class="new-best">PERSONAL BEST ↗</span>' : ''}<div class="result-grid"><div><strong>${r.stats.blocked}</strong><span>변조 차단</span></div><div><strong>${r.bestCombo}<small>×</small></strong><span>최대 연속 차단</span></div><div><strong>${r.stats.leaks}</strong><span>놓친 변조</span></div><div><strong>${scanned}</strong><span>패킷 검사</span></div></div><p class="result-insight">${r.stats.falseBlocks ? `정상 또는 미검사 패킷을 ${r.stats.falseBlocks}번 차단했어요. 먼저 검사하고, 다른 체크섬만 차단하면 방어선을 더 오래 지킬 수 있습니다.` : '서로 다른 체크섬을 찾아 정확히 차단했어요. 실제 통신에서도 같은 계산법으로 전송 전후 확인값을 비교합니다.'}</p><div class="results-actions"><a class="btn-primary" href="#/play" data-nav="#/play">다시 도전하기 ↻</a><a class="btn-secondary" href="#/" data-nav="#/">홈으로 돌아가기 →</a></div></section>`; }
+  get dirty() { return false; }
+  dispose() {}
+}
+export class NotFoundScreen {
+  constructor({ root }) { this.root = root; }
+  mount() { this.root.innerHTML = `<section class="error-state"><p class="eyebrow accent">404 / UNKNOWN SECTOR</p><h1>신호를 찾을 수 없어요.</h1><p>존재하지 않는 게임 화면입니다. 홈에서 다시 출발해 주세요.</p><a class="btn-primary" href="#/" data-nav="#/">방어 기지로 돌아가기 →</a></section>`; }
+  get dirty() { return false; }
+  dispose() {}
+}
